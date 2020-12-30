@@ -121,3 +121,8 @@ std::vector<Section*> Elf::get_executables_section(std::ifstream & file)
 {
     return m_ELFLayout->get_executable_section(file);
 }
+
+std::vector<NamedRegion*> Elf::get_named_regions(std::ifstream & file)
+{
+    return m_ELFLayout->get_named_regions(file);
+}

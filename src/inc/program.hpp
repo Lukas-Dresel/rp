@@ -64,6 +64,16 @@ class Program
         std::multiset<Gadget*, Gadget::Sort> find_gadgets(unsigned int depth, unsigned int engine_display_option = 0);
 
         /*!
+         *  \brief Find all the rop gadgets that are unchanged with FGKASLR enabled
+         *
+         *  \param depth: Set the depth of the research (don't forget the ending instruction doesn't count -- so if you want only ending instruction, depth = 0)
+         *  \param engine_display_option: You can give several display options passed directly to the disassembly engine (enable at&t syntax on beaegine for example)
+         *
+         *  \return The gadgets found
+         */
+        std::multiset<Gadget*, Gadget::Sort> find_fgkaslr_compatible_gadgets(unsigned int depth, unsigned int engine_display_option = 0);
+
+        /*!
          *  \brief Find hex values in the section of the program
          *   
          *  \param hex_values: It is a pointer on where it can find the bytes to find in memory

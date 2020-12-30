@@ -125,6 +125,7 @@ class Gadget
 
         std::list<Instruction*> m_instructions; /*!< the list of the different instructions composing the gadget*/
 
+    public:
         std::vector<unsigned long long> m_offsets; /*!< the vector which stores where you can find the same gadget ; those offsets are relative to m_va_section*/
         
         std::vector<unsigned long long> m_va_sections; /*!< the virtual address of the section where the instructions were found*/

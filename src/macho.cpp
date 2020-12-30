@@ -82,6 +82,10 @@ std::vector<Section*> Macho::get_executables_section(std::ifstream & file)
 {
     return m_MachoLayout->get_executable_section(file);
 }
+std::vector<NamedRegion*> Macho::get_named_regions(std::ifstream & file) {
+    std::vector<NamedRegion*> named_regions;
+    return named_regions;
+}
 
 unsigned long long Macho::raw_offset_to_va(const unsigned long long absolute_raw_offset, const unsigned long long absolute_raw_offset_section) const
 {

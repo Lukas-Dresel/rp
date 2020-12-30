@@ -22,12 +22,16 @@
 #include <iostream>
 #include <map>
 #include <sstream>
+#include <algorithm>
+#include <assert.h>
 
 #include "executable_format.hpp"
 #include "raw.hpp"
 #include "x86.hpp"
 #include "x64.hpp"
 #include "section.hpp"
+#include "named_region.hpp"
+
 #include "coloshell.hpp"
 #include "rpexception.hpp"
 #include "toolbox.hpp"
@@ -139,6 +143,93 @@ std::multiset<Gadget*, Gadget::Sort> Program::find_gadgets(unsigned int depth, u
         /* Mergin'! */
         for(std::multiset<Gadget*>::iterator it_g = gadgets.begin(); it_g != gadgets.end(); ++it_g)
             gadgets_found.insert(*it_g);
+    }
+
+    return gadgets_found;
+}
+
+std::multiset<Gadget*, Gadget::Sort> Program::find_fgkaslr_compatible_gadgets(unsigned int depth, unsigned int engine_display_option)
+{
+    std::multiset<Gadget*, Gadget::Sort> gadgets_found;
+
+    /* To do a ROP gadget research, we need to know the executable section */
+    std::vector<Section*> executable_sections = m_exformat->get_executables_section(m_file);
+    if(executable_sections.size() == 0)
+        std::cout << "It seems your binary haven't executable sections." << std::endl;
+
+    std::vector<NamedRegion*> named_regions = m_exformat->get_named_regions(m_file);
+    if (named_regions.size() == 0)
+    {
+        std::cout << "No named regions => filtering for FGKASLR is not possible. Either implement named regions for"
+            " your file format or disable FGKASLR filtering." << std::endl;
+        return gadgets_found;
+    }
+
+    std::map<unsigned long long, bool> address_is_blocked;
+    for (auto nr : named_regions)
+    {
+        // std::cout << "Found named region " << nr->get_name() << " @ " << std::hex << nr->get_vaddr() << " of size " << nr->get_size() << std::endl;
+        if (nr->get_name().substr(0, 6) == ".text.") // not a -ffunction-sections section
+        {
+            auto base = nr->get_vaddr();
+            for (size_t i = 0; i < nr->get_size(); i++)
+            {
+                address_is_blocked[base + i] = true;
+            }
+        }
+    }
+
+    /* Walk the executable sections */
+    for(std::vector<Section*>::iterator it_sec = executable_sections.begin(); it_sec != executable_sections.end(); ++it_sec)
+    {
+        std::cout << "in " << (*it_sec)->get_name() << std::endl;
+        unsigned long long va_section = (*it_sec)->get_vaddr();
+
+        /* Let the cpu research */
+        std::multiset<Gadget*> gadgets = m_cpu->find_gadget_in_memory(
+            (*it_sec)->get_section_buffer(),
+            (*it_sec)->get_size(),
+            va_section,
+            depth,
+            engine_display_option
+        );
+
+        std::cout << gadgets.size() << " found." << std::endl << std::endl;
+
+        /*
+            XXX:
+                If at&t syntax is enabled, BeaEngine doesn't seem to handle the prefix:
+                \xf0\x00\x00 => addb %al, (%eax) ; -- and in intel -- lock add byte [eax], al ; ret  ;
+
+                It will introduce differences between the number of unique gadgets found!
+        */
+
+        /* Mergin'! */
+        for(std::multiset<Gadget*>::iterator it_g = gadgets.begin(); it_g != gadgets.end(); ++it_g)
+        {
+            Gadget* g = *it_g;
+            size_t num_ocurrences = g->m_offsets.size();
+            assert(num_ocurrences == g->m_va_sections.size());
+
+            std::vector<size_t> invalid_gadget_indices;
+            for (size_t i = 0; i < num_ocurrences; i++)
+            {
+                auto gadget_addr = g->m_va_sections[i] + g->m_offsets[i];
+                if (address_is_blocked[gadget_addr])
+                {
+                    // std::cout << "IGNORING gadget @ " << std::hex << gadget_addr << "!!" << std::endl;
+                    invalid_gadget_indices.push_back(i);
+                }
+            }
+            std::for_each(invalid_gadget_indices.crbegin(), invalid_gadget_indices.crend(), [&g] (auto index) {
+                g->m_offsets.erase(begin(g->m_offsets) + index);
+                g->m_va_sections.erase(begin(g->m_va_sections) + index);
+            });
+            if (g->m_offsets.size() > 0)
+            {
+                gadgets_found.insert(g);
+            }
+        }
     }
 
     return gadgets_found;

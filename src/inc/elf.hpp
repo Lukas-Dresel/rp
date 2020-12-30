@@ -40,6 +40,8 @@ class Elf : public ExecutableFormat
 
         std::vector<Section*> get_executables_section(std::ifstream & file);
 
+        std::vector<NamedRegion*> get_named_regions(std::ifstream & file);
+
     private:
 
         CPU::E_CPU extract_information_from_binary(std::ifstream &file);

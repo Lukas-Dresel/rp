@@ -36,13 +36,14 @@ int main(int argc, char* argv[])
     struct arg_int  *rop     = arg_int0("r", "rop", "<positive int>", "find useful gadget for your future exploits, arg is the gadget maximum size in instructions");
     struct arg_str  *raw     = arg_str0(NULL, "raw", "<archi>", "find gadgets in a raw file, 'archi' must be in the following list: x86, x64");
     struct arg_lit  *att     = arg_lit0(NULL, "atsyntax", "enable the at&t syntax");
+    struct arg_lit  *ignore_fgkaslr     = arg_lit0(NULL, "ignore_fgkaslr", "remove gadgets in functions in FGKASLR sections");
     struct arg_lit  *unique  = arg_lit0(NULL, "unique", "display only unique gadget");
     struct arg_str  *shexa   = arg_str0(NULL, "search-hexa", "<\\x90A\\x90>", "try to find hex values");
     struct arg_str  *sint    = arg_str0(NULL, "search-int", "<int in hex>", "try to find a pointer on a specific integer value");
     struct arg_lit  *help    = arg_lit0("h", "help", "print this help and exit");
     struct arg_lit  *version = arg_lit0("v", "version", "print version information and exit");
     struct arg_end  *end     = arg_end(20);
-    void* argtable[] = {file, display, rop, raw, att, unique, shexa, sint, help, version, end};
+    void* argtable[] = {file, display, rop, raw, att, ignore_fgkaslr, unique, shexa, sint, help, version, end};
 
     if(arg_nullcheck(argtable) != 0)
         RAISE_EXCEPTION("Cannot allocate long option structures");
@@ -131,7 +132,17 @@ int main(int argc, char* argv[])
                     RAISE_EXCEPTION("You specified a maximum number of instruction too important for the --rop option");
 
                 std::cout << std::endl << "Wait a few seconds, rp++ is looking for gadgets.." << std::endl;
-                std::multiset<Gadget*, Gadget::Sort> all_gadgets = p.find_gadgets(rop->ival[0], disass_engine_display_option);
+                std::multiset<Gadget*, Gadget::Sort> all_gadgets;
+                if (ignore_fgkaslr->count > 0)
+                {
+                    std::cout << std::endl << "Only considering FGKASLR compatible sections (aka, no .text.* sections).." << std::endl;
+                    all_gadgets = p.find_fgkaslr_compatible_gadgets(rop->ival[0], disass_engine_display_option);
+                }
+                else
+                {
+                    all_gadgets = p.find_gadgets(rop->ival[0], disass_engine_display_option);
+                }
+
                 std::cout << "A total of " << all_gadgets.size() << " gadgets found." << std::endl;
                 if(unique->count > 0)
                 {

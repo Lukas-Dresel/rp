@@ -28,6 +28,7 @@
 #include "cpu.hpp"
 #include "toolbox.hpp"
 #include "section.hpp"
+#include "named_region.hpp"
 #include "rpexception.hpp"
 
 /*! \class ExecutableFormat
@@ -83,6 +84,15 @@ class ExecutableFormat
          *  \return A vector of Section instances
          */
         virtual std::vector<Section*> get_executables_section(std::ifstream & file) = 0;
+
+        /*!
+         *  \brief Get any named regions in your binary. We use these to filter out gadgets in FGKASLR sections
+         *
+         *  \param file: it is a file handle on your binary file
+         *
+         *  \return A vector of NamedRegion instances
+         */
+        virtual std::vector<NamedRegion*> get_named_regions(std::ifstream & file) = 0;
 
         /*!
          *  \brief Give you a PE/ELF instance (based mostly on the magic signature) 

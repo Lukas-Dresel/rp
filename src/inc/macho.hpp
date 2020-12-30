@@ -37,6 +37,8 @@ class Macho : public ExecutableFormat
 
         std::vector<Section*> get_executables_section(std::ifstream & file);
 
+        std::vector<NamedRegion*> get_named_regions(std::ifstream & file);
+
         unsigned long long raw_offset_to_va(const unsigned long long absolute_raw_offset, const unsigned long long absolute_raw_offset_section) const;
 
         void display_information(const VerbosityLevel lvl) const;

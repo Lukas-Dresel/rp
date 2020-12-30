@@ -167,3 +167,8 @@ std::vector<Section*> PE::get_executables_section(std::ifstream & file)
     }
     return exec_sections;
 }
+
+std::vector<NamedRegion*> PE::get_named_regions(std::ifstream & file) {
+    std::vector<NamedRegion*> named_regions;
+    return named_regions;
+}

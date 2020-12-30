@@ -24,6 +24,7 @@
 #include "toolbox.hpp"
 #include "coloshell.hpp"
 #include "section.hpp"
+#include "named_region.hpp"
 #include "rpexception.hpp"
 
 #include <iostream>
@@ -32,6 +33,7 @@
 #include <vector>
 #include <string>
 #include <cstring>
+#include <assert.h>
 
 /* Information extracted from winnt.h ; a bit of template-kung-fu and here it goes ! */
 
@@ -245,10 +247,26 @@ struct ExecutableLinkingFormatLayout
     virtual void fill_structures(std::ifstream &file) = 0;
     virtual void display(VerbosityLevel lvl = VERBOSE_LEVEL_1) const = 0;
     virtual std::vector<Section*> get_executable_section(std::ifstream &file) const = 0;
+    virtual std::vector<NamedRegion*> get_named_regions(std::ifstream &file) const = 0;
 };
 
-#define SHT_SYMTAB      2
-#define SHT_STRTAB      3
+#define SHT_NULL	0
+#define SHT_PROGBITS	1
+#define SHT_SYMTAB	2
+#define SHT_STRTAB	3
+#define SHT_RELA	4
+#define SHT_HASH	5
+#define SHT_DYNAMIC	6
+#define SHT_NOTE	7
+#define SHT_NOBITS	8
+#define SHT_REL		9
+#define SHT_SHLIB	10
+#define SHT_DYNSYM	11
+#define SHT_NUM		12
+#define SHT_LOPROC	0x70000000
+#define SHT_HIPROC	0x7fffffff
+#define SHT_LOUSER	0x80000000
+#define SHT_HIUSER	0xffffffff
 
 template<class T>
 struct ELFLayout : public ExecutableLinkingFormatLayout
@@ -257,6 +275,7 @@ struct ELFLayout : public ExecutableLinkingFormatLayout
     std::vector<Elf_Phdr<T>*> elfProgramHeaders;
     std::vector<Elf_Shdr_Abstraction<T>*> elfSectionHeaders;
     T offset_string_table, size_string_table;
+    T offset_section_header_string_table, size_section_header_string_table;
 
     typedef typename std::vector<Elf_Phdr<T>*>::const_iterator iter_elf_phdr;
     typedef typename std::vector<Elf_Shdr_Abstraction<T>*>::const_iterator iter_shdr_abs;
@@ -328,6 +347,23 @@ struct ELFLayout : public ExecutableLinkingFormatLayout
         return offset_string_table;
     }
 
+    T find_section_header_string_table(std::ifstream &file)
+    {
+        Elf_Shdr<T> elf_shdr;
+        std::streampos off = file.tellg();
+
+        file.seekg((std::streamoff)elfHeader.e_shoff + sizeof(Elf_Shdr<T>) * elfHeader.e_shstrndx, std::ios::beg);
+        file.read((char*)&elf_shdr, sizeof(Elf_Shdr<T>));
+        assert(elf_shdr.sh_type == SHT_STRTAB);
+        assert(elf_shdr.sh_addr == 0);
+
+        offset_section_header_string_table = elf_shdr.sh_offset;
+        size_section_header_string_table = elf_shdr.sh_size;
+
+        file.seekg(off);
+        return offset_section_header_string_table;
+    }
+
     void fill_structures(std::ifstream &file)
     {
         /* Remember where the caller was in the file */
@@ -355,20 +391,21 @@ struct ELFLayout : public ExecutableLinkingFormatLayout
         /* 3.1] If we want to know the name of the different section, 
          *    we need to find the string table section 
          */
+        find_section_header_string_table(file);
         find_string_table(file);
 
         /* 3.2] Keep the string table in memory */
-        file.seekg((std::streamoff)offset_string_table, std::ios::beg);
+        file.seekg((std::streamoff)offset_section_header_string_table, std::ios::beg);
 
-        if ((unsigned long long)size_string_table > fsize)
-            size_string_table = (unsigned long long)fsize - elfHeader.e_shoff;
+        if ((unsigned long long)size_section_header_string_table > fsize)
+            size_section_header_string_table = (unsigned long long)fsize - offset_section_header_string_table;
 
-        char* string_table_section = new (std::nothrow) char[(unsigned int)size_string_table];
-        if(string_table_section == NULL)
+        char* section_header_string_table_section = new (std::nothrow) char[(unsigned int)size_section_header_string_table];
+        if(section_header_string_table_section == NULL)
             RAISE_EXCEPTION("Cannot allocate string_table_section");
 
 
-        file.read(string_table_section, (std::streamsize)size_string_table);
+        file.read(section_header_string_table_section, (std::streamsize)size_section_header_string_table);
         if (!file)
             RAISE_EXCEPTION("Cannot read string_table_section");
 
@@ -383,10 +420,10 @@ struct ELFLayout : public ExecutableLinkingFormatLayout
             file.read((char*)&pElfSectionHeader->header, sizeof(Elf_Shdr<T>));
 
             /* 3.4] Resolve the name of the section */
-            if(pElfSectionHeader->header.sh_name < size_string_table)
+            if(pElfSectionHeader->header.sh_name < size_section_header_string_table)
             {
                 /* Yeah we know where is the string */
-                char *name_section = string_table_section + pElfSectionHeader->header.sh_name;
+                char *name_section = section_header_string_table_section + pElfSectionHeader->header.sh_name;
                 std::string s(name_section, std::strlen(name_section));
                 pElfSectionHeader->name = (s == "") ? std::string("unknown section") : s;
             }
@@ -397,7 +434,7 @@ struct ELFLayout : public ExecutableLinkingFormatLayout
         /* Set correctly the pointer */
         file.seekg(off);
 
-        delete[] string_table_section;
+        delete[] section_header_string_table_section;
     }
 
     std::vector<Section*> get_executable_section(std::ifstream &file) const
@@ -426,6 +463,34 @@ struct ELFLayout : public ExecutableLinkingFormatLayout
         }
 
         return exec_sections;
+    }
+
+    std::vector<NamedRegion*> get_named_regions(std::ifstream &file) const
+    {
+        std::vector<NamedRegion*> named_regions;
+
+        for(iter_shdr_abs it = elfSectionHeaders.begin(); it != elfSectionHeaders.end(); ++it)
+        {
+            // std::cout << "Section header for " << (*it)->name << " of type " << (*it)->header.sh_type << std::endl;
+            if((*it)->header.sh_type == SHT_PROGBITS)
+            {
+                NamedRegion *nr = new (std::nothrow) NamedRegion(
+                    (*it)->name.c_str(),
+                    (*it)->header.sh_offset,
+                    (*it)->header.sh_addr,
+                    (*it)->header.sh_size
+                );
+
+                if(nr == NULL)
+                    RAISE_EXCEPTION("Cannot allocate a named region.");
+
+                nr->dump(file);
+
+                named_regions.push_back(nr);
+            }
+        }
+
+        return named_regions;
     }
 };
 
